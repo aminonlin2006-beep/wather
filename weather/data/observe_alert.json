@@ -1,0 +1,13 @@
+{
+  "radar_active": true,
+  "future_precip": 0.17,
+  "alert": {
+    "level": "warning",
+    "text": "بارش فعال مشاهده می‌شود ولی مدل‌ها آن را پیش‌بینی نکرده‌اند (همرفت ماندگار/محلی)."
+  },
+  "correction": {
+    "active": true,
+    "precip_min": 0.6,
+    "cloud_min": 80.0
+  }
+}
