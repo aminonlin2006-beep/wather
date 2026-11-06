@@ -208,6 +208,35 @@ data class ForecastRow(
 )
 
 /**
+ * پیش‌بینی تفکیک‌شده توده‌ای و همرفتی:
+ * تفکیک بارش عمومی از بارش رگبار نقطه‌ای توده در صورت اصابت مستقیم، پنجره بحرانی فعالیت توده و هشدار تندباد پیش‌قراول
+ */
+data class ConvectiveCellForecast(
+    val cellRiskProbability: Double = 0.0,
+    val generalPrecipMm: Double = 0.0,
+    val potentialCellPrecipMaxMm: Double = 0.0,
+    val criticalWindowIran: String = "بدون پنجره بحرانی",
+    val cellTypeLabel: String = "آسمان آرام و بدون توده جوششی",
+    val virgaAlert: Boolean = false,
+    val gustFrontRisk: Boolean = false,
+    val description: String = ""
+)
+
+/**
+ * گزارش دیدبانی میدانی شهروندی و ارسال تصویر جهت کالیبراسیون داده‌های رادار و مدل
+ */
+data class SkyObservationReport(
+    val id: String = "",
+    val photoBase64: String? = null,
+    val direction: String = "بالای سر",
+    val phenomenon: String = "ابرهای تیره و جوششی",
+    val userTemp: Double? = null,
+    val notes: String = "",
+    val timestampIran: String = "",
+    val isCalibrated: Boolean = false
+)
+
+/**
  * داشبورد جامع پیش‌بینی هواشناسی منطقه
  */
 data class ForecastDashboard(
@@ -221,6 +250,9 @@ data class ForecastDashboard(
     val stationTelemetry: StationTelemetryInfo,
     val pattern: PatternSummary,
     val ranges: Map<ForecastRange, List<ForecastRow>>,
-    val triangulation: SpatialTriangulationResult = SpatialTriangulationResult()
+    val triangulation: SpatialTriangulationResult = SpatialTriangulationResult(),
+    val cellForecast: ConvectiveCellForecast = ConvectiveCellForecast(),
+    val userObservation: SkyObservationReport? = null
 )
+
 

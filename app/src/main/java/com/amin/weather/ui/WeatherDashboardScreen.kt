@@ -56,6 +56,31 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.provider.MediaStore
+import android.util.Base64
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.input.KeyboardType
+import com.amin.weather.core.ConvectiveCellForecast
+import com.amin.weather.core.SkyObservationReport
+import java.io.ByteArrayOutputStream
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
@@ -251,10 +276,14 @@ fun WeatherDashboardScreen(
     onToggleColumn: (ForecastColumn) -> Unit,
     onUpdateAlertSettings: (AlertSettings) -> Unit,
     onTriggerAlertNotification: (Boolean) -> Unit,
-    onClearFeedbackMessage: () -> Unit
+    onClearFeedbackMessage: () -> Unit,
+    onSelectBottomTab: (Int) -> Unit = {},
+    onSubmitSkyObservation: (String?, String, String, Double?, String) -> Unit = { _, _, _, _, _ -> },
+    onClearSkyObservation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var showNotificationSheet by remember { mutableStateOf(false) }
+    var showSkyObservationSheet by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -294,13 +323,14 @@ fun WeatherDashboardScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "هواشناسی هوشمند منطقه",
+                                    text = "هواشناسی امین",
                                     style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "پایش رادار چندتایلی + شبکه ایستگاه‌های همجوار",
+                                    text = "پایش راداری و دیدبانی هوشمند منطقه",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = TextSecondary,
                                     maxLines = 1
@@ -309,6 +339,17 @@ fun WeatherDashboardScreen(
                         }
                     },
                     actions = {
+                        // دکمه ثبت دیدبانی آسمان و دوربین
+                        IconButton(
+                            onClick = { showSkyObservationSheet = true },
+                            modifier = Modifier.testTag("sky_camera_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "دیده‌بان آسمان و کالیبراسیون",
+                                tint = if (uiState.dashboard?.userObservation != null) AmberStorm else SkyAccent
+                            )
+                        }
                         // دکمه اشتراک‌گذاری گزارش هوا
                         if (uiState.dashboard != null) {
                             IconButton(
@@ -449,9 +490,34 @@ fun WeatherDashboardScreen(
                             selectedRange = uiState.selectedRange,
                             isFromCache = uiState.isFromCache,
                             errorMessage = uiState.errorMessage,
-                            onSelectRange = onSelectRange
+                            onSelectRange = onSelectRange,
+                            selectedBottomTab = uiState.selectedBottomTab,
+                            onSelectBottomTab = onSelectBottomTab,
+                            onClearSkyObservation = onClearSkyObservation
                         )
                     }
+                }
+            }
+
+            // مودال باتم شیت دیده‌بان آسمان و کالیبراسیون داده‌ها
+            if (showSkyObservationSheet) {
+                ModalBottomSheet(
+                    onDismissRequest = { showSkyObservationSheet = false },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    containerColor = SlateCard
+                ) {
+                    SkyObservationBottomSheetContent(
+                        existingReport = uiState.dashboard?.userObservation,
+                        onSubmit = { photo, dir, phen, temp, notes ->
+                            onSubmitSkyObservation(photo, dir, phen, temp, notes)
+                            showSkyObservationSheet = false
+                        },
+                        onClear = {
+                            onClearSkyObservation()
+                            showSkyObservationSheet = false
+                        },
+                        onDismiss = { showSkyObservationSheet = false }
+                    )
                 }
             }
 
@@ -482,7 +548,10 @@ private fun DashboardContent(
     selectedRange: ForecastRange,
     isFromCache: Boolean,
     errorMessage: String?,
-    onSelectRange: (ForecastRange) -> Unit
+    onSelectRange: (ForecastRange) -> Unit,
+    selectedBottomTab: Int = 0,
+    onSelectBottomTab: (Int) -> Unit = {},
+    onClearSkyObservation: () -> Unit = {}
 ) {
     val hourlyRows = dashboard.ranges[ForecastRange.HOURLY].orEmpty()
 
@@ -557,29 +626,17 @@ private fun DashboardContent(
             }
         }
 
-        // ۲. بنر سطح هشدار چهارگانه (Hero Alert Tier) همراه با دمای حسی و توصیه‌های کاربردی
+        // ۲. بنر سطح هشدار چهارگانه (Hero Alert Tier) همراه با دمای حسی و نشانگر کالیبراسیون
         item {
             HeroAlertTierCard(
                 verdict = dashboard.verdict,
-                telemetry = dashboard.stationTelemetry
-            )
-        }
-
-        // ۳. کارت رهگیری راداری چندتایلی ۶۰ کیلومتری
-        item {
-            RadarTrackingCard(radar = dashboard.radarNowcast)
-        }
-
-        // ۴. کارت تجمیع‌شده دیدبانی میدانی، شبکه ایستگاهی و جهت حرکت باران
-        item {
-            FieldNetworkUnifiedCard(
-                triangulation = dashboard.triangulation,
                 telemetry = dashboard.stationTelemetry,
-                perimeter = dashboard.perimeterNetwork
+                userObservation = dashboard.userObservation,
+                onClearObservation = onClearSkyObservation
             )
         }
 
-        // ۵. نوار افقی و مدرن تایم‌لاین ساعتی
+        // ۳. نوار افقی و مدرن تایم‌لاین ساعتی (کاملاً سبک و بدون فضای خالی)
         item {
             HourlyTimelineSection(
                 rows = hourlyRows,
@@ -588,15 +645,34 @@ private fun DashboardContent(
             )
         }
 
-        // ۶. خلاصه وضعیت بارندگی و ناپایداری ۲۴ ساعت آینده
+        // ۴. نوار انتخاب تب‌های سه‌گانه
         item {
-            ConvectiveSummaryCard(pattern = dashboard.pattern)
+            BottomSegmentedTabs(
+                selectedTab = selectedBottomTab,
+                onSelectTab = onSelectBottomTab
+            )
         }
 
-        // ۷. پانویس
+        // ۵. محتوای تب فعال
+        item {
+            when (selectedBottomTab) {
+                0 -> RadarTrackingCard(radar = dashboard.radarNowcast)
+                1 -> FieldNetworkUnifiedCard(
+                    triangulation = dashboard.triangulation,
+                    telemetry = dashboard.stationTelemetry,
+                    perimeter = dashboard.perimeterNetwork
+                )
+                else -> ConvectivePanel(
+                    pattern = dashboard.pattern,
+                    cellForecast = dashboard.cellForecast
+                )
+            }
+        }
+
+        // ۶. پانویس با برندینگ رسمی هواشناسی امین
         item {
             Text(
-                text = "⚡ سامانه پایش یکپارچه راداری و دیدبانی منطقه؛ داده‌های رادار چندتایلی و ایستگاه‌های همجوار برخط استعلام می‌شوند.",
+                text = "⚡ سامانه پایش هوشمند هواشناسی امین • پایش رادار چندتایلی و شبکه ایستگاهی",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(vertical = 8.dp)
@@ -611,7 +687,9 @@ private fun DashboardContent(
 @Composable
 private fun HeroAlertTierCard(
     verdict: VerdictInfo,
-    telemetry: StationTelemetryInfo
+    telemetry: StationTelemetryInfo,
+    userObservation: SkyObservationReport? = null,
+    onClearObservation: () -> Unit = {}
 ) {
     val tier = verdict.tier
     val tierColor = when (tier) {
@@ -629,13 +707,6 @@ private fun HeroAlertTierCard(
 
     val curTemp = telemetry.currentTemp
     val feelsLike = computeFeelsLike(curTemp, telemetry.currentHumidity, telemetry.currentWindSpeed)
-
-    val impactExplanation = when (tier) {
-        AlertTier.GREEN -> "✔️ برای کارهای روزمره، کشاورزی، شستشوی لباس و رانندگی آسمان کاملاً مساعد و آرام است و خطری وجود ندارد."
-        AlertTier.YELLOW -> "🌂 در صورت خروج از منزل همراه داشتن چتر توصیه می‌شود؛ به دلیل رشد ابرهای محلی احتمال رگبار موقت یا وزش باد ناگهانی وجود دارد."
-        AlertTier.ORANGE -> "🚗 توده بارشی در مسیر منطقه است؛ سرعت رانندگی را کم کرده، وسایل سبک را از پشت‌بام یا بالکن جمع‌آوری کرده و از نزدیکی به مسیل‌ها پرهیز کنید."
-        AlertTier.RED -> "🚨 خطر تندباد شدید و رگبار سیل‌آسا: از پارک خودرو زیر درختان و پایه‌های برق خودداری فرمایید و در مکان‌های امن و سرپوشیده بمانید."
-    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -677,6 +748,53 @@ private fun HeroAlertTierCard(
                 )
             }
 
+            // نشانگر کالیبراسیون با دیدبانی میدانی کاربر
+            if (userObservation != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AmberStorm.copy(alpha = 0.2f))
+                        .border(1.dp, AmberStorm.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = AmberStorm,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "📍 کالیبره شده با دیدبانی میدانی شما: ${userObservation.phenomenon} (${userObservation.direction})",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = AmberStorm,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    IconButton(
+                        onClick = onClearObservation,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "حذف دیدبانی",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
             // نمایش دمای فعلی و دمایی که حس می‌شود
             if (curTemp != null) {
                 Spacer(modifier = Modifier.height(10.dp))
@@ -705,7 +823,7 @@ private fun HeroAlertTierCard(
                     }
                     if (feelsLike != null) {
                         Text(
-                            text = "دمایی که حس می‌کنید: ${JalaliCalendar.formatNumber(feelsLike)}°C",
+                            text = "دمای حسی: ${JalaliCalendar.formatNumber(feelsLike)}°C",
                             style = MaterialTheme.typography.labelMedium,
                             color = SkyAccent,
                             fontWeight = FontWeight.SemiBold
@@ -729,41 +847,6 @@ private fun HeroAlertTierCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = TextSecondary
                 )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // کادر توضیح تاثیر در زندگی کاربر
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(SlateSurface.copy(alpha = 0.85f))
-                    .padding(10.dp)
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Lightbulb,
-                            contentDescription = null,
-                            tint = AmberStorm,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "💡 چه تاثیری برای شما دارد؟",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = AmberStorm
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = impactExplanation,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -1634,13 +1717,13 @@ private fun SelectedHourDetailCard(row: ForecastRow) {
 
     val hourAdvice = when {
         row.rainTypeLabel.contains("صاعقه") || (row.convIndex ?: 0.0) >= 30.0 ->
-            "⚡ در این ساعت احتمال رعدوبرق یا وزش تندباد ناگهانی بالاست؛ فعالیت در فضای باز و زیر درختان را متوقف کنید."
+            "⚡ احتمال رعدوبرق یا وزش تندباد ناگهانی؛ در فضای باز پناه بگیرید."
         (row.precipMean ?: 0.0) >= 0.5 || row.rainTypeLabel.contains("باران") ->
-            "🌧️ بارش باران و لغزندگی معابر؛ در صورت تردد چتر همراه داشته باشید و فاصله طولی خودرو را حفظ کنید."
+            "🌧️ بارش باران و لغزندگی؛ چتر همراه داشته و با احتیاط برانید."
         (row.windGust ?: 0.0) >= 30.0 ->
-            "💨 وزش باد و تندباد موضعی؛ مراقب اشیاء سبک در فضای باز و بالکن باشید."
+            "💨 وزش تندباد موضعی؛ مراقب اشیاء سبک در فضای باز باشید."
         else ->
-            "☀️ هوای آرام و مساعد؛ شرایط برای رفت‌وآمد، کارهای بیرون و ورزش مناسب است."
+            "☀️ هوای آرام و مساعد برای فعالیت در فضای باز."
     }
 
     Card(
@@ -1648,18 +1731,28 @@ private fun SelectedHourDetailCard(row: ForecastRow) {
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = SlateSurface)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "ساعت ${JalaliCalendar.formatLong(row.timeIran)} — ${row.rainTypeLabel}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "ساعت ${JalaliCalendar.formatLong(row.timeIran)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "— ${row.rainTypeLabel}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (row.rainTypeLabel.contains("صاعقه") || row.rainTypeLabel.contains("رگبار")) AmberStorm else SkyAccent
+                    )
+                }
+
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
@@ -1678,11 +1771,11 @@ private fun SelectedHourDetailCard(row: ForecastRow) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 MetricMiniTile(
                     title = "بازه بارش",
@@ -1691,7 +1784,7 @@ private fun SelectedHourDetailCard(row: ForecastRow) {
                 )
                 MetricMiniTile(
                     title = "باد / تندباد",
-                    value = "${JalaliCalendar.formatNumber(row.windSpeed)}k | ${JalaliCalendar.formatNumber(row.windGust)}k",
+                    value = "${JalaliCalendar.formatNumber(row.windSpeed)} | ${JalaliCalendar.formatNumber(row.windGust)}k",
                     valueColor = if ((row.windGust ?: 0.0) >= 30.0) AmberStorm else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
                 )
@@ -1708,39 +1801,31 @@ private fun SelectedHourDetailCard(row: ForecastRow) {
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // باکس راهنمای اختصاصی برای این ساعت
-            Box(
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(SlateDeep.copy(alpha = 0.6f))
-                    .padding(8.dp)
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = null,
-                        tint = SkyAccent,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = hourAdvice,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = SkyAccent,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = hourAdvice,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            EducationalDisclosureBox(
-                sourceName = "تحلیل ساعتی ترکیب‌شده مدل برتر اروپایی ECMWF با دیدبانی زنده",
-                reasoningText = "بررسی گام‌به‌گام زمان؛ دمای حسی بر مبنای اثر تبخیر سطحی رطوبت و خنکای باد محاسبه شده و احتمال بارش از متراکم شدن ابرهای باران‌زا به دست آمده است.",
-                accentColor = SkyAccent
-            )
         }
     }
 }
@@ -2095,4 +2180,518 @@ private fun AlertOptionRow(
             )
         )
     }
+}
+
+/**
+ * نوار انتخاب تب‌های سه‌گانه
+ */
+@Composable
+private fun BottomSegmentedTabs(
+    selectedTab: Int,
+    onSelectTab: (Int) -> Unit
+) {
+    val tabs = listOf(
+        "📡 رادار و توده‌ها",
+        "🌐 ایستگاه‌های کمکی",
+        "⚡ توده‌ای و رعدوبرق"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("bottom_segmented_tabs"),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = SlateCard)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            tabs.forEachIndexed { index, title ->
+                val isSelected = selectedTab == index
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isSelected) SlateSurface else Color.Transparent)
+                        .border(
+                            if (isSelected) 1.dp else 0.dp,
+                            if (isSelected) SkyAccent else Color.Transparent,
+                            RoundedCornerShape(10.dp)
+                        )
+                        .clickable { onSelectTab(index) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) SkyAccent else TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * پنل یکپارچه پیش‌بینی همرفتی و تفکیک بارش توده‌ای
+ */
+@Composable
+private fun ConvectivePanel(
+    pattern: PatternSummary,
+    cellForecast: ConvectiveCellForecast
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        ConvectiveCellForecastCard(cellForecast = cellForecast)
+        ConvectiveSummaryCard(pattern = pattern)
+    }
+}
+
+/**
+ * کارت پیش‌بینی تفکیک‌شده توده و رگبار نقطه‌ای (CPI)
+ */
+@Composable
+private fun ConvectiveCellForecastCard(cellForecast: ConvectiveCellForecast) {
+    val probColor = when {
+        cellForecast.cellRiskProbability >= 70.0 -> CoralAlert
+        cellForecast.cellRiskProbability >= 40.0 -> AmberStorm
+        else -> EmeraldOk
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("convective_cell_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
+        border = BorderStroke(1.dp, probColor.copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        tint = AmberStorm,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "پیش‌بینی توده‌ای و رگبار نقطه‌ای (CPI)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(probColor.copy(alpha = 0.2f))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "ریسک: ${JalaliCalendar.formatNumber(cellForecast.cellRiskProbability)}٪",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = probColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = cellForecast.cellTypeLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // مقایسه بارش عمومی دشت در برابر بیشینه اصابت مستقیم توده
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MetricMiniTile(
+                    title = "بارش عمومی منطقه",
+                    value = "${JalaliCalendar.formatNumber(cellForecast.generalPrecipMm)} میلی‌متر",
+                    valueColor = SkyAccent,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricMiniTile(
+                    title = "بیشینه در اصابت مستقیم",
+                    value = "${JalaliCalendar.formatNumber(cellForecast.potentialCellPrecipMaxMm)} میلی‌متر",
+                    valueColor = if (cellForecast.potentialCellPrecipMaxMm >= 5.0) CoralAlert else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // پنجره زمانی بحرانی و هشدارهای همراه
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MetricMiniTile(
+                    title = "پنجره بحرانی توده",
+                    value = cellForecast.criticalWindowIran,
+                    valueColor = AmberStorm,
+                    modifier = Modifier.weight(1.2f)
+                )
+                MetricMiniTile(
+                    title = "تندباد پیش‌قراول",
+                    value = if (cellForecast.gustFrontRisk) "خطر بالا ⚠️" else "عادی ✅",
+                    valueColor = if (cellForecast.gustFrontRisk) AmberStorm else EmeraldOk,
+                    modifier = Modifier.weight(0.8f)
+                )
+            }
+
+            if (cellForecast.virgaAlert) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AmberStorm.copy(alpha = 0.15f))
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Air, contentDescription = null, tint = AmberStorm, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "هشدار ویرگا: خشکی هوای زیر ابر ممکن است باعث تبخیر باران و تبدیل آن به باد شدید ناگهانی شود.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            if (cellForecast.description.isNotBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = cellForecast.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
+                )
+            }
+        }
+    }
+}
+
+/**
+ * باتم شیت دیده‌بان آسمان، ارسال عکس و کالیبراسیون داده‌ها
+ */
+@Composable
+private fun SkyObservationBottomSheetContent(
+    existingReport: SkyObservationReport?,
+    onSubmit: (photo: String?, direction: String, phenomenon: String, temp: Double?, notes: String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var selectedDirection by remember { mutableStateOf(existingReport?.direction ?: "غرب") }
+    var selectedPhenomenon by remember { mutableStateOf(existingReport?.phenomenon ?: "ابرهای تیره و جوششی") }
+    var tempText by remember { mutableStateOf(existingReport?.userTemp?.let { it.toString() } ?: "") }
+    var notesText by remember { mutableStateOf(existingReport?.notes ?: "") }
+    var photoBase64 by remember { mutableStateOf<String?>(existingReport?.photoBase64) }
+    var previewBitmap by remember { mutableStateOf<Bitmap?>(existingReport?.photoBase64?.let { base64ToBitmap(it) }) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bmp ->
+        if (bmp != null) {
+            val scaled = scaleBitmap(bmp, 600)
+            previewBitmap = scaled
+            photoBase64 = bitmapToBase64(scaled)
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            val bmp = uriToBitmap(context, uri)
+            if (bmp != null) {
+                val scaled = scaleBitmap(bmp, 600)
+                previewBitmap = scaled
+                photoBase64 = bitmapToBase64(scaled)
+            }
+        }
+    }
+
+    val directions = listOf("غرب", "شمال غرب", "شمال", "جنوب غرب", "بالای سر")
+    val phenomena = listOf("ابرهای تیره و جوششی", "رعدوبرق", "نم‌نم باران", "رگبار شدید", "تندباد و خاک", "آسمان صاف")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .testTag("sky_observation_bottom_sheet")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = null,
+                    tint = SkyAccent,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "دیده‌بان آسمان و کالیبراسیون محلی",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "ارسال گزارش میدانی برای تنظیم دقیق رادار و پیش‌بینی",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "بستن", tint = TextSecondary)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // پیش‌نمایش یا دکمه‌های بارگذاری تصویر
+        if (previewBitmap != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SlateDeep),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    bitmap = previewBitmap!!.asImageBitmap(),
+                    contentDescription = "تصویر آسمان ارسال‌شده",
+                    modifier = Modifier.fillMaxSize()
+                )
+                IconButton(
+                    onClick = {
+                        previewBitmap = null
+                        photoBase64 = null
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "حذف تصویر", tint = CoralAlert)
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = { cameraLauncher.launch(null) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("take_sky_photo_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = SlateSurface)
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = SkyAccent, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("عکاسی از آسمان", color = MaterialTheme.colorScheme.onSurface)
+                }
+
+                OutlinedButton(
+                    onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("pick_sky_photo_button")
+                ) {
+                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = SkyAccent, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("انتخاب از گالری", color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Text(
+            text = "جهت مشاهده ابر یا توده:",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(directions.size) { i ->
+                val dir = directions[i]
+                FilterChip(
+                    selected = selectedDirection == dir,
+                    onClick = { selectedDirection = dir },
+                    label = { Text(dir) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = SkyAccent.copy(alpha = 0.25f),
+                        selectedLabelColor = SkyAccent
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = "پدیده حاضر در آسمان محل شما:",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(phenomena.size) { i ->
+                val ph = phenomena[i]
+                FilterChip(
+                    selected = selectedPhenomenon == ph,
+                    onClick = { selectedPhenomenon = ph },
+                    label = { Text(ph) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = AmberStorm.copy(alpha = 0.25f),
+                        selectedLabelColor = AmberStorm
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedTextField(
+            value = tempText,
+            onValueChange = { tempText = it },
+            label = { Text("دمای دماسنج شما (°C) — اختیاری") },
+            placeholder = { Text("مثلاً ۲۴.۵") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("user_temp_input"),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = SkyAccent,
+                unfocusedBorderColor = SlateBorder
+            )
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = notesText,
+            onValueChange = { notesText = it },
+            label = { Text("توضیحات و گزارش میدانی — اختیاری") },
+            placeholder = { Text("مثلاً: باد شدید ناگهانی از سمت غرب شروع شد...") },
+            maxLines = 3,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("user_notes_input"),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = SkyAccent,
+                unfocusedBorderColor = SlateBorder
+            )
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    val parsedTemp = tempText.toDoubleOrNull()
+                    onSubmit(photoBase64, selectedDirection, selectedPhenomenon, parsedTemp, notesText)
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("submit_sky_observation_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = SkyAccent)
+            ) {
+                Text("ثبت دیدبانی و کالیبراسیون", fontWeight = FontWeight.Bold, color = SlateDeep)
+            }
+
+            if (existingReport != null) {
+                OutlinedButton(
+                    onClick = onClear,
+                    modifier = Modifier.testTag("clear_sky_observation_button")
+                ) {
+                    Text("حذف دیدبانی", color = CoralAlert)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+private fun bitmapToBase64(bitmap: Bitmap): String {
+    val outputStream = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 75, outputStream)
+    val byteArray = outputStream.toByteArray()
+    return Base64.encodeToString(byteArray, Base64.NO_WRAP)
+}
+
+private fun base64ToBitmap(base64Str: String): Bitmap? {
+    return try {
+        val decodedBytes = Base64.decode(base64Str, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun uriToBitmap(context: android.content.Context, uri: Uri): Bitmap? {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val source = ImageDecoder.createSource(context.contentResolver, uri)
+            ImageDecoder.decodeBitmap(source)
+        } else {
+            @Suppress("DEPRECATION")
+            MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun scaleBitmap(bitmap: Bitmap, maxDim: Int = 600): Bitmap {
+    val width = bitmap.width
+    val height = bitmap.height
+    if (width <= maxDim && height <= maxDim) return bitmap
+    val ratio = width.toFloat() / height.toFloat()
+    val targetWidth = if (width > height) maxDim else (maxDim * ratio).toInt().coerceAtLeast(1)
+    val targetHeight = if (height > width) maxDim else (maxDim / ratio).toInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
 }

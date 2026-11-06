@@ -29,7 +29,12 @@ class MainActivity : ComponentActivity() {
                     onToggleColumn = { vm.toggleColumn(it) },
                     onUpdateAlertSettings = { vm.updateAlertSettings(it) },
                     onTriggerAlertNotification = { vm.checkAndTriggerAlertNotification(it) },
-                    onClearFeedbackMessage = { vm.clearAlertFeedbackMessage() }
+                    onClearFeedbackMessage = { vm.clearAlertFeedbackMessage() },
+                    onSelectBottomTab = { vm.selectBottomTab(it) },
+                    onSubmitSkyObservation = { photo, dir, phen, temp, notes ->
+                        vm.submitSkyObservation(photo, dir, phen, temp, notes)
+                    },
+                    onClearSkyObservation = { vm.clearSkyObservation() }
                 )
             }
         }

@@ -138,7 +138,7 @@ object ForecastEngine {
     /**
      * واکشی و ساخت پیش‌بینی یکپارچه با شبکه دیدبانی پنج‌ضلعی و مدل ECMWF
      */
-    fun buildDashboardData(): JSONObject {
+    fun buildDashboardData(userObservation: SkyObservationReport? = null): JSONObject {
         val payload = OpenMeteoClient.fetchCompleteDataParallel()
         val ecmwf = payload.ecmwf
         val hourlyObj = ecmwf.optJSONObject("hourly")
@@ -152,7 +152,11 @@ object ForecastEngine {
 
         // تله‌متری زنده فرودگاه دزفول
         val st = payload.liveStation
-        val liveTemp = st.optDouble("temperature_2m", Double.NaN).takeIf { !it.isNaN() }
+        val liveTemp = if (userObservation?.userTemp != null) {
+            userObservation.userTemp
+        } else {
+            st.optDouble("temperature_2m", Double.NaN).takeIf { !it.isNaN() }
+        }
         val liveRh = st.optDouble("relative_humidity_2m", Double.NaN).takeIf { !it.isNaN() }
         val liveDp = st.optDouble("dew_point_2m", Double.NaN).takeIf { !it.isNaN() }
         val liveWind = st.optDouble("wind_speed_10m", Double.NaN).takeIf { !it.isNaN() }
@@ -203,7 +207,10 @@ object ForecastEngine {
 
         // اسکن رادار ۶۰ کیلومتر
         val radar = payload.radarScan
-        val isRadarEcho = radar.echoDetected || rainingStations.isNotEmpty() || livePrecip > 0.05 || liveCode in 51..99
+        val hasUserObservedRain = userObservation?.phenomenon?.let {
+            it.contains("باران") || it.contains("رگبار") || it.contains("رعدوبرق")
+        } ?: false
+        val isRadarEcho = radar.echoDetected || rainingStations.isNotEmpty() || livePrecip > 0.05 || liveCode in 51..99 || hasUserObservedRain
 
         // شناسایی احتمال پدیده ویرگا (تبخیر باران در لایه خشک زیرین جو و تبدیل به تندباد سطحی)
         val isVirgaLikely = isRadarEcho && (liveDpDepression ?: 0.0) >= 10.0 && (liveRh ?: 50.0) <= 45.0
@@ -534,6 +541,20 @@ object ForecastEngine {
         meta.put("lon", OpenMeteoClient.LON)
         meta.put("generated_iran", utcToIran(nowUtcIso))
 
+        val cellForecastJson = computeConvectiveCellForecast(
+            radar = radar,
+            isRadarEcho = isRadarEcho,
+            peakSci = peakSci,
+            sumPrecipLikely = sumPrecipLikely,
+            sumPrecipMax = sumPrecipMax,
+            peakPrecipTime = if (peakPrecipMm > 0.0) peakPrecipTime else "—",
+            peakTsTime = if (peakSci >= 20.0) peakTsTime else "—",
+            isVirgaLikely = isVirgaLikely,
+            liveDpDepression = liveDpDepression,
+            liveGust = liveGust,
+            userObservation = userObservation
+        )
+
         val d = JSONObject()
         d.put("meta", meta)
         d.put("verdict", verdictJson)
@@ -543,7 +564,99 @@ object ForecastEngine {
         d.put("station_telemetry", stationJson)
         d.put("pattern", patternJson)
         d.put("ranges", rangesJson)
+        d.put("cell_forecast", cellForecastJson)
+
+        if (userObservation != null) {
+            val userObsJson = JSONObject()
+            userObsJson.put("id", userObservation.id)
+            userObsJson.put("photo_base64", userObservation.photoBase64 ?: "")
+            userObsJson.put("direction", userObservation.direction)
+            userObsJson.put("phenomenon", userObservation.phenomenon)
+            if (userObservation.userTemp != null) userObsJson.put("user_temp", userObservation.userTemp)
+            userObsJson.put("notes", userObservation.notes)
+            userObsJson.put("timestamp_iran", userObservation.timestampIran)
+            userObsJson.put("is_calibrated", true)
+            d.put("user_observation", userObsJson)
+        }
+
         return d
+    }
+
+    /**
+     * پیش‌بینی تفکیک‌شده توده‌ای و احتمال برخورد رگبار نقطه‌ای (Convective Cell Forecast)
+     */
+    fun computeConvectiveCellForecast(
+        radar: OpenMeteoClient.RadarScanResult,
+        isRadarEcho: Boolean,
+        peakSci: Double,
+        sumPrecipLikely: Double,
+        sumPrecipMax: Double,
+        peakPrecipTime: String,
+        peakTsTime: String,
+        isVirgaLikely: Boolean,
+        liveDpDepression: Double?,
+        liveGust: Double?,
+        userObservation: SkyObservationReport?
+    ): JSONObject {
+        val cellObj = JSONObject()
+
+        var cpi = when {
+            isRadarEcho && (radar.estimatedDistanceKm ?: 99.0) <= 25.0 -> 88.0
+            isRadarEcho && (radar.estimatedDistanceKm ?: 99.0) <= 45.0 -> 72.0
+            peakSci >= 40.0 -> 65.0
+            peakSci >= 25.0 -> 45.0
+            sumPrecipLikely > 0.5 -> 35.0
+            else -> 10.0
+        }
+
+        if (userObservation != null) {
+            when {
+                userObservation.phenomenon.contains("رگبار") || userObservation.phenomenon.contains("رعدوبرق") -> {
+                    cpi = Math.max(cpi, 90.0)
+                }
+                userObservation.phenomenon.contains("باران") || userObservation.phenomenon.contains("جوششی") -> {
+                    cpi = Math.max(cpi, 75.0)
+                }
+            }
+        }
+
+        val criticalWindow = when {
+            peakTsTime != "—" && peakTsTime.isNotBlank() -> peakTsTime
+            peakPrecipTime != "—" && peakPrecipTime.isNotBlank() -> peakPrecipTime
+            isRadarEcho && radar.etaRangeText != null -> radar.etaRangeText ?: "ساعات پیش‌رو"
+            else -> "عمدتاً شرایط آرام و بدون پنجره بحرانی"
+        }
+
+        val cellDirectHit = if (cpi >= 40.0) {
+            Math.max(sumPrecipMax * 1.5, Math.max(3.0, (peakSci / 10.0) * 2.5))
+        } else {
+            sumPrecipMax
+        }
+
+        val gustRisk = (liveDpDepression ?: 0.0) >= 10.0 && ((liveGust ?: 0.0) >= 28.0 || isVirgaLikely)
+
+        val typeLabel = when {
+            cpi >= 75.0 && peakSci >= 35.0 -> "توده تندری پرقدرت با پتانسیل صاعقه و تگرگ ⚡"
+            cpi >= 60.0 -> "توده رگباری همرفتی نقطه‌ای 🌧️"
+            cpi >= 35.0 -> "ابرهای جوششی با احتمال رگبار پراکنده 🌦️"
+            else -> "آسمان آرام و بدون توده جوششی فعال ☀️"
+        }
+
+        val description = when {
+            cpi >= 60.0 -> "در رگبارهای همرفتی، ماهیت بارش نقطه‌ای و غیریکنواخت است؛ ممکن است یک محله بارش شدید را تجربه کند در حالی که چند کیلومتر آن‌طرف‌تر بارانی نبارد. بارش عمومی پیش‌بینی‌شده حدود ${r1(sumPrecipLikely)} میلی‌متر است اما در صورت اصابت مستقیم توده، بارش محلی تا ${r1(cellDirectHit)} میلی‌متر امکان‌پذیر است."
+            cpi >= 35.0 -> "پتانسیل شکل‌گیری موضعی ابرهای باران‌زا در ساعات گرم و ناپایدار روز؛ پیش‌بینی عمومی آرام است اما رگبارهای گذرا و ناگهانی دور از ذهن نیست."
+            else -> "هیچ توده جوششی فعالی در افق ۲۴ ساعت آینده منطقه شناسایی نشده است."
+        }
+
+        cellObj.put("cell_risk_probability", r1(cpi))
+        cellObj.put("general_precip_mm", r2(sumPrecipLikely))
+        cellObj.put("potential_cell_precip_max_mm", r2(cellDirectHit))
+        cellObj.put("critical_window_iran", criticalWindow)
+        cellObj.put("cell_type_label", typeLabel)
+        cellObj.put("virga_alert", isVirgaLikely)
+        cellObj.put("gust_front_risk", gustRisk)
+        cellObj.put("description", description)
+        return cellObj
     }
 
     /**

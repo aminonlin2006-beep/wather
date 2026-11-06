@@ -1,6 +1,6 @@
 {
-  "name": "هواشناسی منطقه",
-  "description": "سامانه بومی پایش جامع و پیش‌بینی چندمدلی هواشناسی منطقه با تحلیل ابری، رادار و شبکه ایستگاهی به زبان ساده",
+  "name": "هواشناسی امین",
+  "description": "سامانه هوشمند پایش جامع، پیش‌بینی توده‌ای، رادار و شبکه ایستگاهی هواشناسی امین",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

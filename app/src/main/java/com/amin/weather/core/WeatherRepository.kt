@@ -25,7 +25,8 @@ class WeatherRepository(private val context: Context) {
 
     suspend fun refreshForecast(): Result<ForecastDashboard> = withContext(Dispatchers.IO) {
         try {
-            val json = ForecastEngine.buildDashboardData()
+            val savedObs = getSavedSkyObservation()
+            val json = ForecastEngine.buildDashboardData(savedObs)
             val dashboard = parseDashboard(json)
             val hourlyCount = dashboard.ranges[ForecastRange.HOURLY]?.size ?: 0
             if (hourlyCount > 0) {
@@ -230,6 +231,34 @@ class WeatherRepository(private val context: Context) {
             rangesMap[range] = list
         }
 
+        val cellObj = d.optJSONObject("cell_forecast") ?: JSONObject()
+        val cellForecast = ConvectiveCellForecast(
+            cellRiskProbability = cellObj.optDouble("cell_risk_probability", 0.0),
+            generalPrecipMm = cellObj.optDouble("general_precip_mm", 0.0),
+            potentialCellPrecipMaxMm = cellObj.optDouble("potential_cell_precip_max_mm", 0.0),
+            criticalWindowIran = cellObj.optString("critical_window_iran", "بدون پنجره بحرانی"),
+            cellTypeLabel = cellObj.optString("cell_type_label", "آسمان آرام و بدون توده جوششی"),
+            virgaAlert = cellObj.optBoolean("virga_alert", false),
+            gustFrontRisk = cellObj.optBoolean("gust_front_risk", false),
+            description = cellObj.optString("description", "")
+        )
+
+        val userObsObj = d.optJSONObject("user_observation")
+        val userObservation = if (userObsObj != null) {
+            SkyObservationReport(
+                id = userObsObj.optString("id", ""),
+                photoBase64 = userObsObj.optString("photo_base64").takeIf { it.isNotBlank() },
+                direction = userObsObj.optString("direction", "بالای سر"),
+                phenomenon = userObsObj.optString("phenomenon", ""),
+                userTemp = userObsObj.optNullableDouble("user_temp"),
+                notes = userObsObj.optString("notes", ""),
+                timestampIran = userObsObj.optString("timestamp_iran", ""),
+                isCalibrated = userObsObj.optBoolean("is_calibrated", false)
+            )
+        } else {
+            getSavedSkyObservation()
+        }
+
         return ForecastDashboard(
             location = location,
             lat = lat,
@@ -241,8 +270,52 @@ class WeatherRepository(private val context: Context) {
             stationTelemetry = stationTelemetry,
             pattern = pattern,
             ranges = rangesMap,
-            triangulation = triangulation
+            triangulation = triangulation,
+            cellForecast = cellForecast,
+            userObservation = userObservation
         )
+    }
+
+    private val skyPrefs by lazy {
+        context.getSharedPreferences("sky_observation_prefs", Context.MODE_PRIVATE)
+    }
+
+    fun saveSkyObservation(report: SkyObservationReport) {
+        skyPrefs.edit()
+            .putString("id", report.id)
+            .putString("photo_base64", report.photoBase64)
+            .putString("direction", report.direction)
+            .putString("phenomenon", report.phenomenon)
+            .putString("user_temp", report.userTemp?.toString())
+            .putString("notes", report.notes)
+            .putString("timestamp_iran", report.timestampIran)
+            .putBoolean("is_calibrated", report.isCalibrated)
+            .apply()
+    }
+
+    fun getSavedSkyObservation(): SkyObservationReport? {
+        val id = skyPrefs.getString("id", null) ?: return null
+        val phenomenon = skyPrefs.getString("phenomenon", "") ?: ""
+        val direction = skyPrefs.getString("direction", "بالای سر") ?: "بالای سر"
+        val photo = skyPrefs.getString("photo_base64", null)
+        val tempStr = skyPrefs.getString("user_temp", null)
+        val notes = skyPrefs.getString("notes", "") ?: ""
+        val timestamp = skyPrefs.getString("timestamp_iran", "") ?: ""
+        val isCalibrated = skyPrefs.getBoolean("is_calibrated", false)
+        return SkyObservationReport(
+            id = id,
+            photoBase64 = photo,
+            direction = direction,
+            phenomenon = phenomenon,
+            userTemp = tempStr?.toDoubleOrNull(),
+            notes = notes,
+            timestampIran = timestamp,
+            isCalibrated = isCalibrated
+        )
+    }
+
+    fun clearSkyObservation() {
+        skyPrefs.edit().clear().apply()
     }
 
     private fun JSONObject.optNullableDouble(key: String): Double? {

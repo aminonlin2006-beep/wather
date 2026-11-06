@@ -16,6 +16,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+import com.amin.weather.core.ForecastEngine
+import com.amin.weather.core.SkyObservationReport
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.UUID
+
 data class WeatherUiState(
     val dashboard: ForecastDashboard? = null,
     val isLoading: Boolean = true,
@@ -23,6 +31,7 @@ data class WeatherUiState(
     val isFromCache: Boolean = false,
     val errorMessage: String? = null,
     val selectedRange: ForecastRange = ForecastRange.HOURLY,
+    val selectedBottomTab: Int = 0, // 0: رادار و توده‌ها, 1: ایستگاه‌های کمکی, 2: پتانسیل رعدوبرق و توده‌ای
     val visibleColumns: Set<ForecastColumn> = ForecastColumn.entries
         .filter { it.defaultVisible }
         .toSet(),
@@ -151,6 +160,46 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearAlertFeedbackMessage() {
         _uiState.update { it.copy(alertFeedbackMessage = null) }
+    }
+
+    fun selectBottomTab(index: Int) {
+        _uiState.update { it.copy(selectedBottomTab = index.coerceIn(0, 2)) }
+    }
+
+    fun submitSkyObservation(
+        photoBase64: String?,
+        direction: String,
+        phenomenon: String,
+        temp: Double?,
+        notes: String
+    ) {
+        viewModelScope.launch {
+            val nowUtc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.format(Date())
+            val iranTime = ForecastEngine.utcToIran(nowUtc)
+
+            val report = SkyObservationReport(
+                id = UUID.randomUUID().toString().take(8),
+                photoBase64 = photoBase64,
+                direction = direction,
+                phenomenon = phenomenon,
+                userTemp = temp,
+                notes = notes,
+                timestampIran = iranTime,
+                isCalibrated = true
+            )
+            repository.saveSkyObservation(report)
+            // بلافاصله موتور محاسباتی را با داده‌های دیدبانی کاربر مجدداً کالیبره کن
+            refresh(isInitial = false)
+        }
+    }
+
+    fun clearSkyObservation() {
+        viewModelScope.launch {
+            repository.clearSkyObservation()
+            refresh(isInitial = false)
+        }
     }
 
     private fun evaluateAlerts(dashboard: ForecastDashboard, sendSystemNotification: Boolean) {

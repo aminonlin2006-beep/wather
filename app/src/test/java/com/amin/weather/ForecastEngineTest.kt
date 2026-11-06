@@ -67,5 +67,33 @@ class ForecastEngineTest {
             val first = arr.getJSONObject(0)
             println("  First item time_iran: ${first.optString("time_iran")}, source: ${first.optString("forecast_source")}")
         }
+
+        // بررسی پیش‌بینی تفکیک‌شده توده‌ای (Convective Cell Forecast)
+        assertTrue("Dashboard must contain cell_forecast", json.has("cell_forecast"))
+        val cell = json.getJSONObject("cell_forecast")
+        println("Cell Forecast: prob=${cell.optDouble("cell_risk_probability")}%, window=${cell.optString("critical_window_iran")}, type=${cell.optString("cell_type_label")}")
+        assertTrue(cell.has("cell_risk_probability"))
+        assertTrue(cell.has("potential_cell_precip_max_mm"))
+        assertTrue(cell.has("critical_window_iran"))
+        assertTrue(cell.has("cell_type_label"))
+
+        // تست کالیبراسیون با دیدبانی شهروندی کاربر
+        val userReport = com.amin.weather.core.SkyObservationReport(
+            id = "test-1",
+            photoBase64 = null,
+            direction = "غرب",
+            phenomenon = "رعدوبرق",
+            userTemp = 23.5,
+            notes = "تگرگ و صاعقه در غرب",
+            timestampIran = "۱۴:۰۰",
+            isCalibrated = true
+        )
+        val calibratedJson = ForecastEngine.buildDashboardData(userReport)
+        assertTrue(calibratedJson.has("user_observation"))
+        val uObs = calibratedJson.getJSONObject("user_observation")
+        assertTrue(uObs.optBoolean("is_calibrated"))
+        val calibCell = calibratedJson.getJSONObject("cell_forecast")
+        println("Calibrated Cell Forecast: prob=${calibCell.optDouble("cell_risk_probability")}%")
+        assertTrue(calibCell.optDouble("cell_risk_probability") >= 80.0)
     }
 }
