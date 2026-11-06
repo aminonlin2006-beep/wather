@@ -167,28 +167,48 @@ object ForecastEngine {
             Math.max(0.0, liveTemp - calculateDewPoint(liveTemp, liveRh))
         } else null
 
-        // تحلیل شبکه دیدبانی پنج‌ضلعی پیرامونی (شوش، اندیمشک، حسینیه، گتوند، دزفول)
+        // تفکیک پایگاه‌های حلقه پیرامونی نزدیک از ایستگاه‌های پیش‌هشدار بالادست
         val perimeter = payload.perimeterStations
-        val rainingStations = perimeter.filter { it.isRaining }
-        val gustyStations = perimeter.filter { (it.windGust ?: 0.0) >= 32.0 }
+        val localPerimeter = perimeter.filter { !it.isUpstreamWarning }
+        val upstreamStations = perimeter.filter { it.isUpstreamWarning }
+
+        val rainingStations = localPerimeter.filter { it.isRaining }
+        val gustyStations = localPerimeter.filter { (it.windGust ?: 0.0) >= 32.0 }
         val threatDirections = rainingStations.map { "${it.name} (${it.sector})" }
+
+        val upstreamRaining = upstreamStations.filter { it.isRaining }
+        val upstreamGusty = upstreamStations.filter { (it.windGust ?: 0.0) >= 35.0 }
+        val distantWarningStationsCount = upstreamRaining.size + upstreamGusty.size
+
+        val distantWarningSummary: String? = when {
+            upstreamRaining.isNotEmpty() ->
+                "🌧️ ثبت بارش فعال در پایگاه بالادست ${upstreamRaining.joinToString("، ") { it.name }}؛ احتمال حرکت سامانه به دشت طی ساعات آینده."
+            upstreamGusty.isNotEmpty() ->
+                "💨 وزش تندباد شدید در پایگاه بالادست ${upstreamGusty.joinToString("، ") { it.name }}؛ هشدار اولیه عبور جبهه باد و گردوخاک."
+            else -> null
+        }
 
         val networkSummaryText = when {
             rainingStations.size >= 2 ->
                 "⚠️ هشدار جبهه بارشی: بارش فعال هم‌زمان در ${threatDirections.joinToString(" و ")} ثبت شده و در حال پیشروی است."
             rainingStations.isNotEmpty() ->
                 "🌧️ بارش فعال در ${threatDirections.first()} در فاصله نزدیک گزارش شد."
+            distantWarningSummary != null ->
+                distantWarningSummary
             gustyStations.isNotEmpty() ->
                 "💨 وزش تندباد لحظه‌ای در ${gustyStations.map { it.name }.joinToString(" و ")} (احتمال پیش‌قراول جبهه هوای ناپایدار)."
             else ->
-                "تمامی پایگاه‌های دیدبانی پیرامونی (شوش، اندیمشک، حسینیه و گتوند) شرایط آرامی ثبت کرده‌اند."
+                "تمامی پایگاه‌های دیدبانی پیرامونی شرایط آرامی ثبت کرده‌اند."
         }
 
         // اسکن رادار ۶۰ کیلومتر
         val radar = payload.radarScan
         val isRadarEcho = radar.echoDetected || rainingStations.isNotEmpty() || livePrecip > 0.05 || liveCode in 51..99
 
-        // محاسبات مثلث‌بندی راداری و پایگاه‌های همجوار (دزفول، اندیمشک، شوش، گتوند)
+        // شناسایی احتمال پدیده ویرگا (تبخیر باران در لایه خشک زیرین جو و تبدیل به تندباد سطحی)
+        val isVirgaLikely = isRadarEcho && (liveDpDepression ?: 0.0) >= 10.0 && (liveRh ?: 50.0) <= 45.0
+
+        // محاسبات مثلث‌بندی راداری و پایگاه‌های همجوار
         val triangulationJson = computeSpatialTriangulation(perimeter, radar, st)
         val sppScore = triangulationJson.optDouble("spatial_precip_probability", 0.0)
 
@@ -202,21 +222,34 @@ object ForecastEngine {
             livePrecip > 0.2 || (isRadarEcho && radar.estimatedDistanceKm != null && radar.estimatedDistanceKm <= 15.0) || (sppScore >= 85.0 && isRadarEcho) -> {
                 alertTier = AlertTier.RED
                 verdictText = "هشدار قرمز: رگبار شدید باران، تندباد لحظه‌ای و صاعقه در محدوده منطقه (احتمال بارش ${JalaliCalendar.formatNumber(sppScore)}٪)."
-                advisoryNote = "توده فعال بر روی منطقه قرار دارد؛ از تردد غیرضروری در فضای باز و بستر رودخانه‌ها خودداری فرمایید."
+                advisoryNote = if (isVirgaLikely) {
+                    "توده فعال بر فراز منطقه است؛ به دلیل خشکی لایه زیرین احتمال تبخیر باران در هوا (ویرگا) و وزش تندبادهای ناگهانی شدید و خاک وجود دارد."
+                } else {
+                    "توده فعال بر روی منطقه قرار دارد؛ از تردد غیرضروری در فضای باز و بستر رودخانه‌ها خودداری فرمایید."
+                }
             }
             // ۲. سطح نارنجی: توده فعال راداری یا گزارش باران در ایستگاه‌های همجوار در فاصله ۳۰ تا ۵۰ کیلومتر یا SPP بالای ۶۰٪
             isRadarEcho || rainingStations.isNotEmpty() || sppScore >= 60.0 -> {
                 val dist = radar.estimatedDistanceKm?.toInt() ?: if (rainingStations.isNotEmpty()) rainingStations.first().distanceKm else 35
                 val eta = radar.estimatedEtaMinutes ?: ((dist / 32.0) * 60).toInt().coerceAtLeast(15)
+                val etaRange = radar.etaRangeText ?: "حدود $eta دقیقه دیگر"
                 val dir = if (rainingStations.isNotEmpty()) threatDirections.first() else radar.cellDirection
                 alertTier = AlertTier.ORANGE
                 verdictText = "هشدار نارنجی: توده بارشی فعال در فاصله تقریبی $dist کیلومتری ($dir) به سمت منطقه در حال حرکت است (احتمال بارش ${JalaliCalendar.formatNumber(sppScore)}٪)."
-                advisoryNote = "تخمین زمان رسیدن به منطقه: حدود $eta دقیقه دیگر. احتمال وقوع رگبار و تندباد ناگهانی."
+                advisoryNote = if (isVirgaLikely) {
+                    "زمان محتمل ورود: $etaRange (${radar.cloudTrendLabel}). احتمال تبخیر قطرات در هوا و وزش تندباد شدید موضعی."
+                } else {
+                    "زمان محتمل ورود: $etaRange (${radar.cloudTrendLabel}). احتمال وقوع رگبار و تندباد ناگهانی."
+                }
             }
             else -> {
                 alertTier = AlertTier.GREEN
                 verdictText = "آسمان آرام و پایدار در منطقه و نقاط همجوار؛ هیچ توده بارشی فعالی در شعاع ۶۰ کیلومتری دیده نمی‌شود."
-                advisoryNote = "شرایط با اسکن مستمر رادار و شبکه ایستگاه‌های پیرامون پایش می‌شود."
+                advisoryNote = if (distantWarningSummary != null) {
+                    "ایستگاه‌های دوربرد بالادست تحرکاتی ثبت کرده‌اند که روند آن به طور مداوم پایش می‌شود."
+                } else {
+                    "شرایط با اسکن مستمر رادار و شبکه ایستگاه‌های پیرامون پایش می‌شود."
+                }
             }
         }
 
@@ -405,14 +438,17 @@ object ForecastEngine {
         radarJson.put("estimated_distance_km", r1(radar.estimatedDistanceKm))
         radarJson.put("cell_azimuth_direction", if (threatDirections.isNotEmpty()) threatDirections.first() else radar.cellDirection)
         radarJson.put("estimated_eta_minutes", radar.estimatedEtaMinutes)
+        radarJson.put("eta_range_text", radar.etaRangeText)
+        radarJson.put("cloud_trend_label", radar.cloudTrendLabel)
         radarJson.put("reflectivity_dbz", r1(radar.reflectivityDbz))
-        radarJson.put("status_text", radar.statusText)
+        radarJson.put("status_text", if (isVirgaLikely && isRadarEcho) "${radar.statusText} ⚠️ احتمال تبخیر قطرات باران پیش از رسیدن به زمین (ویرگا) وجود دارد." else radar.statusText)
         radarJson.put("last_frame_iran", if (radar.lastFrameEpoch > 0) utcToIran(utcFormat.format(Date(radar.lastFrameEpoch * 1000L))) else "")
         radarJson.put("movement_speed_kmh", r1(radar.movementSpeedKmh))
         radarJson.put("incoming_rain_likely", isRadarEcho)
+        radarJson.put("is_virga_likely", isVirgaLikely)
         radarJson.put("scan_radius_km", 60)
 
-        // ساخت شیء شبکه دیدبانی پنج‌ضلعی
+        // ساخت شیء شبکه دیدبانی پیرامونی و پیش‌هشدار دوربرد
         val perimeterArr = JSONArray()
         for (ps in perimeter) {
             val pj = JSONObject()
@@ -426,6 +462,7 @@ object ForecastEngine {
             pj.put("precipitation", r2(ps.precipitation))
             pj.put("is_raining", ps.isRaining)
             pj.put("status_text", ps.statusText)
+            pj.put("is_upstream_warning", ps.isUpstreamWarning)
             perimeterArr.put(pj)
         }
 
@@ -433,7 +470,9 @@ object ForecastEngine {
         perimeterSummaryJson.put("stations", perimeterArr)
         perimeterSummaryJson.put("active_rain_stations_count", rainingStations.size)
         perimeterSummaryJson.put("active_gust_stations_count", gustyStations.size)
+        perimeterSummaryJson.put("distant_warning_stations_count", distantWarningStationsCount)
         perimeterSummaryJson.put("threat_direction", if (threatDirections.isNotEmpty()) threatDirections.joinToString("، ") else null)
+        perimeterSummaryJson.put("distant_warning_summary", distantWarningSummary)
         perimeterSummaryJson.put("network_status_summary", networkSummaryText)
 
         // تله‌متری ایستگاه مرکزی منطقه

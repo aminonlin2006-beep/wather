@@ -93,15 +93,18 @@ class WeatherRepository(private val context: Context) {
             estimatedEtaMinutes = if (radarObj.has("estimated_eta_minutes") && !radarObj.isNull("estimated_eta_minutes")) {
                 radarObj.optInt("estimated_eta_minutes")
             } else null,
+            etaRangeText = radarObj.optString("eta_range_text").takeIf { it.isNotBlank() },
+            cloudTrendLabel = radarObj.optString("cloud_trend_label", "پایدار ↔️"),
             reflectivityDbz = radarObj.optDouble("reflectivity_dbz", 0.0),
             statusText = radarObj.optString("status_text", ""),
             lastFrameIran = radarObj.optString("last_frame_iran", ""),
             movementSpeedKmh = radarObj.optDouble("movement_speed_kmh", 0.0),
             incomingRainLikely = radarObj.optBoolean("incoming_rain_likely", false),
+            isVirgaLikely = radarObj.optBoolean("is_virga_likely", false),
             scanRadiusKm = radarObj.optInt("scan_radius_km", 60)
         )
 
-        // شبکه دیدبانی پنج‌ضلعی پیرامونی (شوش، اندیمشک، حسینیه، گتوند، دزفول)
+        // شبکه دیدبانی پیرامونی و پیش‌هشدار دوربرد
         val perimObj = d.optJSONObject("perimeter_network") ?: JSONObject()
         val perimStationsArr = perimObj.optJSONArray("stations") ?: JSONArray()
         val perimStationsList = mutableListOf<PerimeterStationInfo>()
@@ -120,7 +123,8 @@ class WeatherRepository(private val context: Context) {
                     isRaining = pj.optBoolean("is_raining", false),
                     statusText = pj.optString("status_text", "آرام ☀️"),
                     windSpeed = pj.optNullableDouble("wind_speed") ?: pj.optNullableDouble("wind_speed_kmh"),
-                    windDirection = pj.optNullableDouble("wind_direction") ?: pj.optNullableDouble("wind_direction_deg")
+                    windDirection = pj.optNullableDouble("wind_direction") ?: pj.optNullableDouble("wind_direction_deg"),
+                    isUpstreamWarning = pj.optBoolean("is_upstream_warning", false)
                 )
             )
         }
@@ -128,7 +132,9 @@ class WeatherRepository(private val context: Context) {
             stations = perimStationsList,
             activeRainStationsCount = perimObj.optInt("active_rain_stations_count", 0),
             activeGustStationsCount = perimObj.optInt("active_gust_stations_count", 0),
+            distantWarningStationsCount = perimObj.optInt("distant_warning_stations_count", 0),
             threatDirection = perimObj.optString("threat_direction").takeIf { it.isNotBlank() },
+            distantWarningSummary = perimObj.optString("distant_warning_summary").takeIf { it.isNotBlank() },
             networkStatusSummary = perimObj.optString("network_status_summary", "")
         )
 

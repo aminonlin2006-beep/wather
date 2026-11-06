@@ -22,13 +22,17 @@ object OpenMeteoClient {
     const val LAT = 32.3006
     const val LON = 48.4308
 
-    // مختصات ۵ پایگاه دیدبانی پیرامون منطقه و نقاط اثرگذار
+    // مختصات پایگاه‌های دیدبانی پیرامون منطقه و ایستگاه‌های پیش‌هشدار بالادست
     val REGIONAL_STATIONS = listOf(
-        StationConfig("central", "مرکز منطقه", "مرکز", 32.3006, 48.4308, 0),
-        StationConfig("andimeshk", "اندیمشک", "شمال غرب", 32.4578, 48.3567, 15),
-        StationConfig("shush", "شوش", "غرب", 32.1942, 48.2436, 30),
-        StationConfig("hosseiniyeh", "حسینیه (تنگه زاگرس)", "شمال", 32.6853, 48.2514, 45),
-        StationConfig("gotvand", "گتوند", "شرق", 32.2472, 48.8164, 35)
+        StationConfig("central", "مرکز منطقه", "مرکز", 32.3006, 48.4308, 0, false),
+        StationConfig("andimeshk", "اندیمشک", "شمال غرب", 32.4578, 48.3567, 15, false),
+        StationConfig("shush", "شوش", "غرب", 32.1942, 48.2436, 30, false),
+        StationConfig("hosseiniyeh", "حسینیه (تنگه زاگرس)", "شمال", 32.6853, 48.2514, 45, false),
+        StationConfig("gotvand", "گتوند", "شرق", 32.2472, 48.8164, 35, false),
+        // ایستگاه‌های دیدبانی پیش‌هشدار دوربرد و بالادست
+        StationConfig("dehloran", "دهلران", "بالادست غرب و شمال‌غرب", 32.6941, 47.2679, 115, true),
+        StationConfig("poldokhtar", "پلدختر", "بالادست شمال (زاگرس)", 33.1539, 47.7136, 105, true),
+        StationConfig("bostan", "بستان", "بالادست جنوب‌غرب", 31.7214, 47.9869, 78, true)
     )
 
     data class StationConfig(
@@ -37,7 +41,8 @@ object OpenMeteoClient {
         val sector: String,
         val lat: Double,
         val lon: Double,
-        val distKm: Int
+        val distKm: Int,
+        val isUpstreamWarning: Boolean = false
     )
 
     val ECMWF_VARIABLES = listOf(
@@ -182,7 +187,8 @@ object OpenMeteoClient {
                         isRaining = isRaining,
                         statusText = status,
                         windSpeed = windSpeed,
-                        windDirection = windDir
+                        windDirection = windDir,
+                        isUpstreamWarning = cfg.isUpstreamWarning
                     )
                 )
             }
@@ -204,7 +210,8 @@ object OpenMeteoClient {
                 windGust = null,
                 precipitation = 0.0,
                 isRaining = false,
-                statusText = "پایش آنلاین"
+                statusText = "پایش آنلاین",
+                isUpstreamWarning = cfg.isUpstreamWarning
             )
         }
     }
@@ -236,6 +243,8 @@ object OpenMeteoClient {
         val estimatedDistanceKm: Double?,
         val cellDirection: String,
         val estimatedEtaMinutes: Int?,
+        val etaRangeText: String?,
+        val cloudTrendLabel: String,
         val reflectivityDbz: Double,
         val statusText: String,
         val lastFrameEpoch: Long,
@@ -269,6 +278,8 @@ object OpenMeteoClient {
                     estimatedDistanceKm = null,
                     cellDirection = "عدم اتصال به رادار",
                     estimatedEtaMinutes = null,
+                    etaRangeText = null,
+                    cloudTrendLabel = "پایدار ↔️",
                     reflectivityDbz = 0.0,
                     statusText = "📡 رادار در حال بازنشانی اطلاعات...",
                     lastFrameEpoch = 0L,
@@ -289,6 +300,8 @@ object OpenMeteoClient {
                     estimatedDistanceKm = null,
                     cellDirection = "بدون توده فعال",
                     estimatedEtaMinutes = null,
+                    etaRangeText = null,
+                    cloudTrendLabel = "پایدار ↔️",
                     reflectivityDbz = 0.0,
                     statusText = "📡 رادار آنلاین است؛ در حال حاضر توده بارشی در شعاع پایش ۶۰ کیلومتری دیده نمی‌شود.",
                     lastFrameEpoch = 0L,
@@ -305,7 +318,7 @@ object OpenMeteoClient {
             val prevTime = prevFrame?.optLong("time", 0L) ?: 0L
             val prevPath = prevFrame?.optString("path", "") ?: ""
 
-            // اسکن شبکه ۲×۲ چندتایلی برای پوشش کامل دزفول و مدخل‌های ورودی سامانه‌ها (غرب و شمال‌غرب)
+            // اسکن شبکه ۲×۲ چندتایلی برای پوشش کامل منطقه و مدخل‌های ورودی سامانه‌ها (غرب و شمال‌غرب)
             data class TileEcho(
                 val spec: RadarTileSpec,
                 val currentSize: Int,
@@ -335,6 +348,16 @@ object OpenMeteoClient {
             val activeEchoes = echoList.filter { it.hasEcho }
             val hasActiveEcho = activeEchoes.isNotEmpty()
 
+            // تحلیل روند تقویت، تضعیف یا پایداری توده‌ها بر اساس تغییرات سیگنال اکو
+            val totalCurr = echoList.sumOf { it.currentSize }
+            val totalPrev = echoList.sumOf { it.prevSize }
+            val cloudTrendLabel = when {
+                totalPrev <= 0 -> "پایدار ↔️"
+                totalCurr > (totalPrev * 1.20).toInt() -> "در حال تقویت و گسترش ⬆️"
+                totalCurr < (totalPrev * 0.80).toInt() -> "در حال تضعیف و واگرایی ⬇️"
+                else -> "پایدار ↔️"
+            }
+
             val estimatedDbz = when {
                 maxByteSize > 15000 -> 48.0
                 maxByteSize > 6000 -> 38.0
@@ -344,7 +367,7 @@ object OpenMeteoClient {
             }
 
             if (hasActiveEcho) {
-                // تعیین نزدیک‌ترین توده به دزفول
+                // تعیین نزدیک‌ترین توده به منطقه
                 val closestTile = activeEchoes.minByOrNull { it.spec.nominalDistanceKm } ?: activeEchoes.first()
                 val distKm = when {
                     closestTile.spec.x == 81 && closestTile.spec.y == 51 && closestTile.currentSize > 6000 -> 10.0
@@ -357,12 +380,11 @@ object OpenMeteoClient {
                 val centerHasEcho = echoList.find { it.spec.x == 81 && it.spec.y == 51 && it.currentSize > 900 } != null
                 val northHadEcho = echoList.find { it.spec.y == 50 && it.prevSize > 900 } != null
 
-                val isMovingTowardsDezful = (westHadEcho && centerHasEcho) ||
+                val isMovingTowardsRegion = (westHadEcho && centerHasEcho) ||
                     (northHadEcho && centerHasEcho) ||
                     activeEchoes.any { it.spec.x == 80 || it.spec.y == 50 }
 
                 // تخمین سرعت دینامیک حرکت جبهه بر اساس تغییرات زمانی
-                val timeDiffMin = if (lastTime > prevTime && prevTime > 0) ((lastTime - prevTime) / 60.0).coerceIn(5.0, 20.0) else 10.0
                 val dynamicSpeed = when {
                     westHadEcho && centerHasEcho -> 38.0
                     northHadEcho -> 34.0
@@ -370,6 +392,14 @@ object OpenMeteoClient {
                 }
 
                 val etaMin = ((distKm / dynamicSpeed) * 60.0).toInt().coerceAtLeast(10)
+                val etaLow = (etaMin * 0.8).toInt().coerceAtLeast(10)
+                val etaHigh = (etaMin * 1.3).toInt().coerceAtLeast(etaLow + 10)
+                val etaRangeText = if (distKm <= 15.0) {
+                    "کمتر از ۱۵ دقیقه (حریم نزدیک)"
+                } else {
+                    "بین $etaLow تا $etaHigh دقیقه دیگر"
+                }
+
                 val activeSectors = activeEchoes.map { it.spec.sectorName }
                 val directionDescription = when {
                     activeSectors.size >= 2 -> "جبهه گسترده راداری: ${activeSectors.joinToString(" و ")}"
@@ -377,9 +407,9 @@ object OpenMeteoClient {
                 }
 
                 val statusText = if (distKm <= 15.0) {
-                    "📡 اکوی بارشی فعال در حریم نزدیک منطقه (فاصله حدود ${distKm.toInt()} km) با بازتابش ${estimatedDbz.toInt()} dBZ در حال بارش است."
+                    "📡 اکوی بارشی فعال در حریم نزدیک منطقه (فاصله حدود ${distKm.toInt()} km) با بازتابش ${estimatedDbz.toInt()} dBZ ($cloudTrendLabel)."
                 } else {
-                    "📡 رصد توده بارشی در $directionDescription؛ سرعت انتقال: ${dynamicSpeed.toInt()} km/h؛ تخمین رسیدن به منطقه: حدود $etaMin دقیقه دیگر."
+                    "📡 رصد توده بارشی در $directionDescription؛ سرعت انتقال: ${dynamicSpeed.toInt()} km/h؛ زمان محتمل ورود به منطقه: $etaRangeText ($cloudTrendLabel)."
                 }
 
                 return RadarScanResult(
@@ -388,11 +418,13 @@ object OpenMeteoClient {
                     estimatedDistanceKm = distKm,
                     cellDirection = directionDescription,
                     estimatedEtaMinutes = etaMin,
+                    etaRangeText = etaRangeText,
+                    cloudTrendLabel = cloudTrendLabel,
                     reflectivityDbz = estimatedDbz,
                     statusText = statusText,
                     lastFrameEpoch = lastTime,
                     movementSpeedKmh = dynamicSpeed,
-                    incomingRainLikely = isMovingTowardsDezful
+                    incomingRainLikely = isMovingTowardsRegion
                 )
             } else {
                 return RadarScanResult(
@@ -401,6 +433,8 @@ object OpenMeteoClient {
                     estimatedDistanceKm = null,
                     cellDirection = "پایش شبکه چندتایلی پاک",
                     estimatedEtaMinutes = null,
+                    etaRangeText = null,
+                    cloudTrendLabel = "پایدار ↔️",
                     reflectivityDbz = 0.0,
                     statusText = "📡 اسکن شبکه ۴ تایل رادار پیرامون منطقه آرام است؛ هیچ توده بارشی فعالی در شعاع پایش دیده نمی‌شود.",
                     lastFrameEpoch = lastTime,
@@ -415,6 +449,8 @@ object OpenMeteoClient {
                 estimatedDistanceKm = null,
                 cellDirection = "نامشخص",
                 estimatedEtaMinutes = null,
+                etaRangeText = null,
+                cloudTrendLabel = "پایدار ↔️",
                 reflectivityDbz = 0.0,
                 statusText = "📡 وضعیت رادار به صورت خودکار پایش می‌شود.",
                 lastFrameEpoch = 0L,
@@ -425,7 +461,7 @@ object OpenMeteoClient {
     }
 
     /**
-     * واکشی هم‌زمان و موازی کلیه داده‌های شبکه: ECMWF، ۱۵ دقیقه‌ای، شبکه دیدبانی ۵ ایستگاهی و رادار
+     * واکشی هم‌زمان و موازی کلیه داده‌های شبکه: ECMWF، ۱۵ دقیقه‌ای، شبکه دیدبانی و رادار
      */
     data class ComprehensivePayload(
         val ecmwf: JSONObject,
@@ -451,7 +487,7 @@ object OpenMeteoClient {
             val radar = try {
                 fRadar.get(10, TimeUnit.SECONDS)
             } catch (_: Exception) {
-                RadarScanResult(false, false, null, "", null, 0.0, "", 0L, 0.0, false)
+                RadarScanResult(false, false, null, "", null, null, "پایدار ↔️", 0.0, "", 0L, 0.0, false)
             }
 
             ComprehensivePayload(

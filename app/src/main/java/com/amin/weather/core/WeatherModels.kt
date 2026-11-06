@@ -60,11 +60,14 @@ data class RadarNowcastInfo(
     val estimatedDistanceKm: Double? = null,
     val cellAzimuthDirection: String = "بدون توده فعال",
     val estimatedEtaMinutes: Int? = null,
+    val etaRangeText: String? = null,
+    val cloudTrendLabel: String = "پایدار ↔️",
     val reflectivityDbz: Double = 0.0,
     val statusText: String = "",
     val lastFrameIran: String = "",
     val movementSpeedKmh: Double = 0.0,
     val incomingRainLikely: Boolean = false,
+    val isVirgaLikely: Boolean = false,
     val scanRadiusKm: Int = 60
 )
 
@@ -74,7 +77,7 @@ data class RadarNowcastInfo(
 data class PerimeterStationInfo(
     val id: String,
     val name: String,
-    val sector: String, // "مرکز", "شمال غرب", "غرب", "شمال", "شرق"
+    val sector: String, // "مرکز", "شمال غرب", "غرب", "شمال", "شرق", "بالادست دوربرد"
     val distanceKm: Int,
     val temp: Double?,
     val humidity: Double?,
@@ -83,7 +86,8 @@ data class PerimeterStationInfo(
     val isRaining: Boolean,
     val statusText: String,
     val windSpeed: Double? = null,
-    val windDirection: Double? = null
+    val windDirection: Double? = null,
+    val isUpstreamWarning: Boolean = false
 )
 
 /**
@@ -135,7 +139,9 @@ data class PerimeterNetworkSummary(
     val stations: List<PerimeterStationInfo>,
     val activeRainStationsCount: Int = 0,
     val activeGustStationsCount: Int = 0,
+    val distantWarningStationsCount: Int = 0,
     val threatDirection: String? = null,
+    val distantWarningSummary: String? = null,
     val networkStatusSummary: String = "ایستگاه‌های دیدبانی پیرامون وضعیت جوی پایداری را گزارش کرده‌اند."
 )
 

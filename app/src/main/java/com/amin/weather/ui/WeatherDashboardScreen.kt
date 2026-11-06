@@ -6,6 +6,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,11 +42,14 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
@@ -76,6 +84,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -125,6 +134,112 @@ fun computeFeelsLike(tempC: Double?, humidity: Double?, windSpeedKmh: Double?): 
     val e = (rh / 100.0) * 6.105 * Math.exp((17.27 * t) / (237.7 + t))
     val at = t + 0.33 * e - 0.70 * wsMs - 4.00
     return Math.round(at * 10.0) / 10.0
+}
+
+/**
+ * جعبه آموزشی تاشو و بازشونده برای شفاف‌سازی مبانی پیش‌بینی و آموزش مفاهیم به زبان ساده
+ */
+@Composable
+fun EducationalDisclosureBox(
+    sourceName: String,
+    reasoningText: String,
+    accentColor: Color = SkyAccent,
+    modifier: Modifier = Modifier
+) {
+    var isExpanded by rememberSaveable { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(SlateDeep.copy(alpha = 0.55f))
+            .border(0.8.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+    ) {
+        // نوار لمسی کلید باز/بسته کردن
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { isExpanded = !isExpanded }
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.School,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "🎓 مبنای این پیش‌بینی و تحلیل علمی",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = accentColor
+                )
+            }
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (isExpanded) "بستن آموزش" else "مشاهده آموزش",
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // محتوای بازشونده انیمیشنی
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                HorizontalDivider(
+                    color = SlateBorder.copy(alpha = 0.35f),
+                    thickness = 0.8.dp,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+
+                // منبع داده
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        text = "📡 منبع داده: ",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = SkyAccent
+                    )
+                    Text(
+                        text = sourceName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // چرا و چگونه
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        text = "🔍 تحلیل و مبنای علمی: ",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = AmberStorm
+                    )
+                    Text(
+                        text = reasoningText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -535,7 +650,10 @@ private fun HeroAlertTierCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(14.dp)
@@ -550,6 +668,7 @@ private fun HeroAlertTierCard(
                         color = tierColor
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = icon,
                     contentDescription = tier.name,
@@ -646,6 +765,14 @@ private fun HeroAlertTierCard(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            EducationalDisclosureBox(
+                sourceName = "ترکیب همزمان رادار بارشی ۶۰ کیلومتری + ایستگاه مرکزی و شهرهای همجوار",
+                reasoningText = "بررسی همزمان وجود توده‌های باران در رادار، رطوبت نسبی و سرعت باد؛ هرگاه ابری در شعاع ۳۰ کیلومتری نباشد وضعیت سبز و هرگاه توده فعال نزدیک شود سطح هشدار بالا می‌رود.",
+                accentColor = tierColor
+            )
         }
     }
 }
@@ -672,20 +799,26 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Speed,
                         contentDescription = "رادار",
                         tint = accentColor,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "📡 رهگیری راداری ابرهای باران‌زا (شعاع ۶۰km)",
+                        text = "رهگیری راداری ابرها (شعاع ۶۰km)",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -693,7 +826,7 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = if (radar.echoDetected) "اکوی فعال" else "شبکه ۴ تایل آرام",
+                        text = if (radar.echoDetected) "اکوی فعال" else "شبکه آرام",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = if (radar.echoDetected) CoralAlert else EmeraldOk
@@ -707,6 +840,33 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
+
+            if (radar.isVirgaLikely) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AmberStorm.copy(alpha = 0.16f))
+                        .border(1.dp, AmberStorm.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = AmberStorm,
+                            modifier = Modifier.size(16.dp).padding(top = 2.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "احتمال پدیده ویرگا (تبخیر باران در آسمان): توده در ارتفاع شکل گرفته ولی به دلیل خشکی لایه‌های پایینی جو، ممکن است قطرات باران پیش از رسیدن به زمین تبخیر شده و به جای باران، وزش باد شدید و خاک احساس شود.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
             Row(
@@ -732,7 +892,7 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
                     )
                 }
 
-                // زمان ورود (ETA) و سرعت حرکت دینامیک
+                // زمان ورود (ETA بازه‌ای و شناور)
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -741,17 +901,19 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
                         .padding(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "تخمین ورود", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    Text(text = "بازه ورود", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = radar.estimatedEtaMinutes?.let { "حدود $it دقیقه" } ?: "بدون تهدید",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = radar.etaRangeText ?: (radar.estimatedEtaMinutes?.let { "حدود $it دقیقه" } ?: "بدون تهدید"),
+                        style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (radar.echoDetected) AmberStorm else EmeraldOk
+                        color = if (radar.echoDetected) AmberStorm else EmeraldOk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // جهت استقرار و بردار پیشروی
+                // روند رشد یا تضعیف ابرها
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -760,10 +922,10 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
                         .padding(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "جهت استقرار توده", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    Text(text = "روند توده", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = radar.cellAzimuthDirection.take(18),
+                        text = radar.cloudTrendLabel,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = SkyAccent,
@@ -777,7 +939,11 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
 
             // کادر توضیح تاثیر رادار در زندگی کاربر
             val radarAdvice = if (radar.echoDetected) {
-                "⚠️ ابرهای بارانی در حال نزدیک شدن هستند (حدود ${radar.estimatedEtaMinutes ?: 25} دقیقه دیگر)؛ وسایل حساس به آب را جمع کرده و پیش از شروع رگبار برنامه‌ریزی کنید."
+                if (radar.isVirgaLikely) {
+                    "⚠️ ابرها در ارتفاع فعالند اما ممکن است باران در هوا تبخیر شده و باد شدید محلی ایجاد شود. در فضای باز مراقب گردوخاک و تندباد باشید."
+                } else {
+                    "⚠️ ابرهای بارانی در حال نزدیک شدن هستند (${radar.etaRangeText ?: "طی ساعت آینده"})؛ وسایل حساس به آب را جمع کرده و پیش از شروع رگبار برنامه‌ریزی کنید."
+                }
             } else {
                 "✔️ تا شعاع ۶۰ کیلومتری هیچ ابر باران‌زای فعالی دیده نمی‌شود و تا حداقل یک ساعت آینده خطری از بابت باران ناگهانی برنامه‌های شما را تهدید نمی‌کند."
             }
@@ -813,6 +979,14 @@ private fun RadarTrackingCard(radar: RadarNowcastInfo) {
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            EducationalDisclosureBox(
+                sourceName = "اسکن زنده شبکه راداری هواشناسی با ۴ تایل پیرامونی (شعاع ۶۰ کیلومتر)",
+                reasoningText = "تطبیق و مقایسه فریم‌های متوالی رادار در فواصل ۱۰ دقیقه‌ای برای استخراج بردار سرعت دینامیک (${radar.movementSpeedKmh.toInt()} km/h)، محاسبه بازه زمانی ورود و پایش روند گسترش/تضعیف (${radar.cloudTrendLabel}).",
+                accentColor = accentColor
+            )
         }
     }
 }
@@ -851,27 +1025,35 @@ private fun FieldNetworkUnifiedCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Navigation,
-                        contentDescription = "مثلث‌بندی",
+                        contentDescription = "شبکه دیدبانی",
                         tint = SkyAccent,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Column {
                         Text(
-                            text = "🌐 شبکه ایستگاه‌های همجوار و جهت باران",
+                            text = "شبکه پایگاه‌های همجوار و جهت باران",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "پایش همزمان اندیمشک، شوش، گتوند و ایستگاه مرکزی",
+                            text = "پایش ایستگاه‌های پیرامون و بالادست",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -940,7 +1122,7 @@ private fun FieldNetworkUnifiedCard(
                 listOf(
                     "شبکه مثلثی (۳ شهر)" to 0,
                     "ایستگاه مرکزی" to 1,
-                    "پایگاه‌های پیرامونی" to 2
+                    "پیرامونی و دوربرد" to 2
                 ).forEach { (label, index) ->
                     val isSelected = selectedTab == index
                     Box(
@@ -979,8 +1161,25 @@ private fun FieldNetworkUnifiedCard(
                     StationTelemetryContent(telemetry)
                 }
                 2 -> {
-                    // تب ۳: پایگاه‌های حلقه ۵ ضلعی پیرامونی
+                    // تب ۳: پایگاه‌های حلقه پیرامونی و ایستگاه‌های پیش‌هشدار دوربرد
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        perimeter.distantWarningSummary?.let { warningText ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(AmberStorm.copy(alpha = 0.15f))
+                                    .border(1.dp, AmberStorm.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = warningText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AmberStorm
+                                )
+                            }
+                        }
                         perimeter.stations.forEach { st ->
                             PerimeterStationRow(st)
                         }
@@ -1028,6 +1227,14 @@ private fun FieldNetworkUnifiedCard(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            EducationalDisclosureBox(
+                sourceName = "شبکه حسگرهای زمینی شهرهای همجوار (اندیمشک، شوش، گتوند، دهلران، پلدختر، بستان) و ایستگاه مرکزی",
+                reasoningText = "اندازه‌گیری لحظه‌ای اختلاف فشار، رطوبت و سرعت باد میان پایگاه‌های اطراف و بالادست تا مسیر ورود جبهه‌های بارشی به سمت دشت قبل از متراکم شدن ابرها ردیابی شود.",
+                accentColor = sppColor
+            )
         }
     }
 }
@@ -1204,11 +1411,29 @@ private fun PerimeterStationRow(st: PerimeterStationInfo) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column {
-                Text(
-                    text = st.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = st.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (st.isUpstreamWarning) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(SkyAccent.copy(alpha = 0.18f))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "پیش‌هشدار بالادست",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SkyAccent
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = "${st.sector} • ${st.distanceKm} km",
                     style = MaterialTheme.typography.labelSmall,
@@ -1508,6 +1733,14 @@ private fun SelectedHourDetailCard(row: ForecastRow) {
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            EducationalDisclosureBox(
+                sourceName = "تحلیل ساعتی ترکیب‌شده مدل برتر اروپایی ECMWF با دیدبانی زنده",
+                reasoningText = "بررسی گام‌به‌گام زمان؛ دمای حسی بر مبنای اثر تبخیر سطحی رطوبت و خنکای باد محاسبه شده و احتمال بارش از متراکم شدن ابرهای باران‌زا به دست آمده است.",
+                accentColor = SkyAccent
+            )
         }
     }
 }
@@ -1523,11 +1756,25 @@ private fun ConvectiveSummaryCard(pattern: PatternSummary) {
         colors = CardDefaults.cardColors(containerColor = SlateCard)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "📊 خلاصه وضعیت بارندگی و ناپایداری ۲۴ ساعت آینده",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WaterDrop,
+                    contentDescription = null,
+                    tint = AmberStorm,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "خلاصه وضعیت بارندگی ۲۴ ساعت آینده",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             Row(
@@ -1588,6 +1835,14 @@ private fun ConvectiveSummaryCard(pattern: PatternSummary) {
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            EducationalDisclosureBox(
+                sourceName = "مدل جهانی هواشناسی اروپا (ECMWF) با تفکیک شبانه‌روزی لایه‌های جو",
+                reasoningText = "بررسی نوسان دمایی میان لایه زیرین جو و هوای سرد بالای سر؛ اگر اختلاف دما زیاد باشد هوای گرم صعود کرده و ابرها جوششی و رگباری می‌شوند.",
+                accentColor = AmberStorm
+            )
         }
     }
 }

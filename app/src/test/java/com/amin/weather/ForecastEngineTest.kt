@@ -44,12 +44,15 @@ class ForecastEngineTest {
         assertTrue(Math.abs(sumWeights - 1.0) < 0.05)
 
         val radar = json.getJSONObject("radar_nowcast")
-        println("Radar tier: ${radar.optString("tier")}, status: ${radar.optString("status_text")}")
+        println("Radar tier: ${radar.optString("tier")}, status: ${radar.optString("status_text")}, trend: ${radar.optString("cloud_trend_label")}")
+        assertTrue(radar.has("cloud_trend_label"))
+        assertTrue(radar.has("is_virga_likely"))
 
         val perim = json.getJSONObject("perimeter_network")
         val stations = perim.getJSONArray("stations")
-        println("Perimeter stations count: ${stations.length()}")
-        assertTrue(stations.length() >= 5)
+        println("Perimeter stations count: ${stations.length()}, distant warnings: ${perim.optInt("distant_warning_stations_count")}")
+        assertTrue(stations.length() >= 8)
+        assertTrue(perim.has("distant_warning_stations_count"))
 
         val station = json.getJSONObject("station_telemetry")
         println("Central Station: ${station.optString("station_name")}, temp: ${station.opt("current_temp")}")
